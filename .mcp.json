@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "reminder": {
+      "command": "node",
+      "args": ["src/index.js"],
+      "cwd": "C:\\Users\\Just\\Documents\\GitHub\\claude-reminders"
+    }
+  }
+}
