@@ -11,12 +11,13 @@ Claude Code's built-in `/schedule` is session-only (dies with the instance) and 
 The channel is a single Node.js process that Claude Code spawns as an MCP stdio server (see `.mcp.json`). A 30-second interval checks for due reminders and fires them as channel notifications.
 
 ```
-set_reminder → store to disk → interval checker → channel notification → Claude
+set_reminder / set_interval → store to disk → interval checker → channel notification → Claude
 ```
 
-- **Set**: Claude calls the `set_reminder` tool with a message and due time (ISO 8601 or relative like `+30m`, `+2h`, `+1d`).
-- **Fire**: the checker picks up due reminders and injects them into the session.
+- **Set**: Claude calls `set_reminder` (one-time) or `set_interval` (recurring) with a message and timing.
+- **Fire**: a 30-second checker picks up due reminders and injects them into the session.
 - **Persist**: reminders are stored as JSON on disk — they survive process restarts and new sessions.
+- **Cold start**: recurring reminders that fell behind during an outage are rescheduled forward — no backlog flood.
 
 ## Requirements
 
@@ -65,9 +66,10 @@ Then ask Claude to set a reminder — it'll have the tools available.
 
 | Tool | Description |
 |---|---|
-| `set_reminder` | Create a reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601) |
+| `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601) |
+| `set_interval` | Create a recurring reminder that fires every N minutes/hours/days (`30m`, `2h`, `1d`) |
 | `list_reminders` | List pending reminders (pass `include_fired=true` to see past ones) |
-| `delete_reminder` | Cancel a reminder by ID |
+| `delete_reminder` | Cancel a reminder by ID (works for both one-time and recurring) |
 
 ## Configuration
 
@@ -77,4 +79,4 @@ Then ask Claude to set a reminder — it'll have the tools available.
 
 ## v2 ideas (not implemented)
 
-- Recurring reminders (cron-style), snooze support, reminder categories/tags.
+- Snooze support, reminder categories/tags, cron expressions (e.g. "every weekday at 9am").

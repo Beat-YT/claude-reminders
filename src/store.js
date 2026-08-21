@@ -31,7 +31,7 @@ function saveAll(reminders) {
   fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8');
 }
 
-export function addReminder(message, dueAt) {
+export function addReminder(message, dueAt, { interval = null } = {}) {
   const reminders = loadAll();
   const reminder = {
     id: crypto.randomUUID(),
@@ -39,10 +39,11 @@ export function addReminder(message, dueAt) {
     dueAt,
     createdAt: new Date().toISOString(),
     fired: false,
+    interval,
   };
   reminders.push(reminder);
   saveAll(reminders);
-  log.info('store', `added reminder ${reminder.id} due at ${dueAt}`);
+  log.info('store', `added reminder ${reminder.id} due at ${dueAt}${interval ? ` (every ${interval}ms)` : ''}`);
   return reminder;
 }
 
@@ -66,6 +67,15 @@ export function markFired(id) {
   const reminders = loadAll();
   const r = reminders.find(r => r.id === id);
   if (!r) return false;
+
+  if (r.interval) {
+    r.dueAt = new Date(Date.now() + r.interval).toISOString();
+    r.fireCount = (r.fireCount || 0) + 1;
+    r.lastFiredAt = new Date().toISOString();
+    saveAll(reminders);
+    return true;
+  }
+
   r.fired = true;
   r.firedAt = new Date().toISOString();
   saveAll(reminders);
@@ -75,4 +85,19 @@ export function markFired(id) {
 export function getDueReminders() {
   const now = Date.now();
   return loadAll().filter(r => !r.fired && new Date(r.dueAt).getTime() <= now);
+}
+
+export function rescheduleStaleIntervals() {
+  const now = Date.now();
+  const reminders = loadAll();
+  let count = 0;
+  for (const r of reminders) {
+    if (r.fired || !r.interval) continue;
+    if (new Date(r.dueAt).getTime() > now) continue;
+    r.dueAt = new Date(now + r.interval).toISOString();
+    count++;
+    log.info('store', `rescheduled stale interval ${r.id} to ${r.dueAt}`);
+  }
+  if (count > 0) saveAll(reminders);
+  return count;
 }

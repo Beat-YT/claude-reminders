@@ -2,12 +2,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { log } from './log.js';
+import { parseDate, parseInterval, formatInterval, localISO } from './utils.js';
 import {
   addReminder,
   listReminders,
   deleteReminder,
   getDueReminders,
   markFired,
+  rescheduleStaleIntervals,
 } from './store.js';
 
 const CHECK_INTERVAL_MS = 30_000;
@@ -19,9 +21,10 @@ When a reminder fires, you'll receive a notification like:
     reminder message here
   </channel>
 
-Use the "set_reminder" tool to create reminders with a due date/time.
+Use the "set_reminder" tool to create one-time reminders with a due date/time.
+Use "set_interval" to create recurring reminders that fire every N minutes/hours/days.
 Use "list_reminders" to see pending reminders.
-Use "delete_reminder" to cancel one.
+Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
 Reminders persist across sessions — they survive restarts.`;
 
@@ -62,6 +65,32 @@ export function createChannel() {
   );
 
   mcp.registerTool(
+    'set_interval',
+    {
+      description: 'Create a recurring reminder that fires every N minutes/hours/days. Uses the same relative syntax: "30m", "2h", "1d". The first fire happens after one interval from now.',
+      inputSchema: {
+        message: z.string().describe('What to remind about'),
+        every: z.string().describe('How often — e.g. "30m", "2h", "1d"'),
+      },
+    },
+    async ({ message, every }) => {
+      const intervalMs = parseInterval(every);
+      if (!intervalMs) {
+        return {
+          content: [{ type: 'text', text: `Could not parse interval: "${every}". Use "30m", "2h", "1d", etc.` }],
+          isError: true,
+        };
+      }
+
+      const firstDue = new Date(Date.now() + intervalMs).toISOString();
+      const reminder = addReminder(message, firstDue, { interval: intervalMs });
+      return {
+        content: [{ type: 'text', text: `Recurring reminder set (id: ${reminder.id}) — fires every ${every}, first at ${reminder.dueAt}` }],
+      };
+    },
+  );
+
+  mcp.registerTool(
     'list_reminders',
     {
       description: 'List all pending reminders. Pass include_fired=true to also see past reminders.',
@@ -74,9 +103,14 @@ export function createChannel() {
       if (reminders.length === 0) {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }
-      const lines = reminders.map(r =>
-        `[${r.fired ? 'FIRED' : 'PENDING'}] ${r.id}\n  "${r.message}"\n  due: ${r.dueAt}${r.firedAt ? `  fired: ${r.firedAt}` : ''}`
-      );
+      const lines = reminders.map(r => {
+        const type = r.interval ? 'RECURRING' : (r.fired ? 'FIRED' : 'PENDING');
+        let line = `[${type}] ${r.id}\n  "${r.message}"\n  due: ${r.dueAt}`;
+        if (r.interval) line += `\n  every: ${formatInterval(r.interval)}`;
+        if (r.fireCount) line += `  (fired ${r.fireCount}x, last: ${r.lastFiredAt})`;
+        if (r.firedAt) line += `  fired: ${r.firedAt}`;
+        return line;
+      });
       return { content: [{ type: 'text', text: lines.join('\n\n') }] };
     },
   );
@@ -114,6 +148,7 @@ export function createChannel() {
                 reminder_id: r.id,
                 created_at: r.createdAt,
                 due_at: r.dueAt,
+                fired_at: localISO(),
               },
             },
           });
@@ -128,6 +163,10 @@ export function createChannel() {
   async function connect() {
     const transport = new StdioServerTransport();
     await mcp.connect(transport);
+    const rescheduled = rescheduleStaleIntervals();
+    if (rescheduled > 0) {
+      log.info('boot', `rescheduled ${rescheduled} stale recurring reminder(s)`);
+    }
     startChecker();
     log.info('mcp', 'reminder channel connected');
   }
@@ -139,17 +178,3 @@ export function createChannel() {
   return { connect, stop };
 }
 
-function parseDate(input) {
-  const relative = input.match(/^\+(\d+)([smhd])$/);
-  if (relative) {
-    const amount = parseInt(relative[1], 10);
-    const unit = relative[2];
-    const multipliers = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
-    return new Date(Date.now() + amount * multipliers[unit]);
-  }
-
-  const parsed = new Date(input);
-  if (!isNaN(parsed.getTime())) return parsed;
-
-  return null;
-}
