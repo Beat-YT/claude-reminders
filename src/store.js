@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { log } from './log.js';
+import { nextCronDate } from './utils.js';
 
 const DATA_DIR = path.join(
   process.env.REMINDER_DATA_DIR ||
@@ -31,7 +32,7 @@ function saveAll(reminders) {
   fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8');
 }
 
-export function addReminder(message, dueAt, { interval = null, downtime = null, excludeDays = null } = {}) {
+export function addReminder(message, dueAt, { cron = null, tz = null } = {}) {
   const reminders = loadAll();
   const reminder = {
     id: crypto.randomUUID(),
@@ -39,13 +40,12 @@ export function addReminder(message, dueAt, { interval = null, downtime = null, 
     dueAt,
     createdAt: new Date().toISOString(),
     fired: false,
-    interval,
-    ...(downtime && { downtime }),
-    ...(excludeDays && { excludeDays }),
+    ...(cron && { cron }),
+    ...(tz && { tz }),
   };
   reminders.push(reminder);
   saveAll(reminders);
-  log.info('store', `added reminder ${reminder.id} due at ${dueAt}${interval ? ` (every ${interval}ms)` : ''}`);
+  log.info('store', `added reminder ${reminder.id} due at ${dueAt}${cron ? ` (cron: ${cron})` : ''}`);
   return reminder;
 }
 
@@ -70,8 +70,8 @@ export function markFired(id) {
   const r = reminders.find(r => r.id === id);
   if (!r) return false;
 
-  if (r.interval) {
-    r.dueAt = new Date(Date.now() + r.interval).toISOString();
+  if (r.cron) {
+    r.dueAt = nextCronDate(r.cron, r.tz).toISOString();
     r.fireCount = (r.fireCount || 0) + 1;
     r.lastFiredAt = new Date().toISOString();
     saveAll(reminders);
@@ -84,30 +84,21 @@ export function markFired(id) {
   return true;
 }
 
-export function rescheduleNext(id) {
-  const reminders = loadAll();
-  const r = reminders.find(r => r.id === id);
-  if (!r || !r.interval) return false;
-  r.dueAt = new Date(Date.now() + r.interval).toISOString();
-  saveAll(reminders);
-  return true;
-}
-
 export function getDueReminders() {
   const now = Date.now();
   return loadAll().filter(r => !r.fired && new Date(r.dueAt).getTime() <= now);
 }
 
-export function rescheduleStaleIntervals() {
+export function rescheduleStaleCrons() {
   const now = Date.now();
   const reminders = loadAll();
   let count = 0;
   for (const r of reminders) {
-    if (r.fired || !r.interval) continue;
+    if (r.fired || !r.cron) continue;
     if (new Date(r.dueAt).getTime() > now) continue;
-    r.dueAt = new Date(now + r.interval).toISOString();
+    r.dueAt = nextCronDate(r.cron, r.tz).toISOString();
     count++;
-    log.info('store', `rescheduled stale interval ${r.id} to ${r.dueAt}`);
+    log.info('store', `rescheduled stale cron ${r.id} to ${r.dueAt}`);
   }
   if (count > 0) saveAll(reminders);
   return count;

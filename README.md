@@ -11,17 +11,17 @@ Claude Code's built-in `/schedule` is session-only (dies with the instance) and 
 The channel is a single Node.js process that Claude Code spawns as an MCP stdio server (see `.mcp.json`). A 30-second interval checks for due reminders and fires them as channel notifications.
 
 ```
-set_reminder / set_interval → store to disk → interval checker → channel notification → Claude
+set_reminder / set_schedule → store to disk → interval checker → channel notification → Claude
 ```
 
-- **Set**: Claude calls `set_reminder` (one-time) or `set_interval` (recurring) with a message and timing.
+- **Set**: Claude calls `set_reminder` (one-time) or `set_schedule` (cron-based recurring) with a message and timing.
 - **Fire**: a 30-second checker picks up due reminders and injects them into the session.
 - **Persist**: reminders are stored as JSON on disk — they survive process restarts and new sessions.
-- **Cold start**: recurring reminders that fell behind during an outage are rescheduled forward — no backlog flood.
+- **Cold start**: cron reminders that fell behind during an outage are rescheduled to their next occurrence — no backlog flood.
 
 ## Requirements
 
-- Node.js ≥ 20.12
+- Node.js >= 20.12
 
 ## Setup
 
@@ -67,16 +67,42 @@ Then ask Claude to set a reminder — it'll have the tools available.
 | Tool | Description |
 |---|---|
 | `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601) |
-| `set_interval` | Create a recurring reminder that fires every N minutes/hours/days (`30m`, `2h`, `1d`) |
+| `set_schedule` | Create a recurring reminder with a cron expression (`0 9 * * 1-5`, `@daily`, `@weekdays`, etc.) |
 | `list_reminders` | List pending reminders (pass `include_fired=true` to see past ones) |
 | `delete_reminder` | Cancel a reminder by ID (works for both one-time and recurring) |
+
+### Cron syntax
+
+Standard 5-field cron (with optional 6th leading seconds field):
+
+```
+┌───── minute (0-59)
+│ ┌─── hour (0-23)
+│ │ ┌─ day of month (1-31, L for last)
+│ │ │ ┌─ month (1-12 or JAN-DEC)
+│ │ │ │ ┌─ day of week (0-7 or SUN-SAT, 0/7=Sun)
+* * * * *
+```
+
+Special characters: `*` `,` `-` `/` `L` `#`
+
+| Example | Meaning |
+|---|---|
+| `*/5 * * * *` | Every 5 minutes |
+| `0 9 * * 1-5` | Weekdays at 9am |
+| `0 0 L * *` | Midnight on last day of month |
+| `0 0 * * 1#1` | First Monday of the month |
+| `@daily` | Once a day at midnight |
+| `@weekdays` | Every weekday at midnight |
+| `@weekends` | Every weekend day at midnight |
+| `@hourly` | Once an hour |
+
+Timezone support via IANA timezone names (e.g. `America/New_York`, `Europe/London`).
+
+Powered by [cron-parser](https://www.npmjs.com/package/cron-parser).
 
 ## Configuration
 
 | Var | Required | Default | Meaning |
 |---|---|---|---|
 | `REMINDER_DATA_DIR` | no | `%APPDATA%/.claude-reminder` (Windows) or `~/.claude-reminder` (Unix) | Where reminders are stored on disk |
-
-## v2 ideas (not implemented)
-
-- Snooze support, reminder categories/tags, cron expressions (e.g. "every weekday at 9am").

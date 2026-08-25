@@ -2,12 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { log } from './log.js';
-import { parseDate, parseInterval, formatInterval, parseDowntime, parseExcludeDays, formatDays } from './utils.js';
+import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron } from './utils.js';
 import {
   addReminder,
   listReminders,
   deleteReminder,
-  rescheduleStaleIntervals,
+  rescheduleStaleCrons,
 } from './store.js';
 import { createScheduler } from './scheduler.js';
 
@@ -19,8 +19,9 @@ When a reminder fires, you'll receive a notification like:
   </channel>
 
 Use the "set_reminder" tool to create one-time reminders with a due date/time.
-Use "set_interval" to create recurring reminders that fire every N minutes/hours/days.
-  Recurring reminders support optional downtime windows (e.g. "22:00-08:00") and excluded weekdays (e.g. "sat,sun").
+Use "set_schedule" to create recurring reminders using cron expressions (e.g. "0 9 * * 1-5" for weekdays at 9am).
+  Predefined expressions like @daily, @hourly, @weekdays, @weekends are also supported.
+  Timezone can be specified (e.g. "America/New_York").
 Use "list_reminders" to see pending reminders.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
@@ -28,7 +29,7 @@ Reminders persist across sessions — they survive restarts.`;
 
 export function createChannel() {
   const mcp = new McpServer(
-    { name: 'claude-reminder', version: '0.1.0' },
+    { name: 'claude-reminder', version: '2.0.0' },
     {
       capabilities: {
         experimental: { 'claude/channel': {} },
@@ -40,7 +41,7 @@ export function createChannel() {
   mcp.registerTool(
     'set_reminder',
     {
-      description: 'Create a persistent reminder. The due_at field accepts ISO 8601 datetime strings (e.g. "2025-03-15T14:30:00") or relative expressions like "+30m", "+2h", "+1d".',
+      description: 'Create a persistent one-time reminder. Survives restarts and sessions. Accepts ISO 8601 datetime or relative like "+30m", "+2h", "+1d".',
       inputSchema: {
         message: z.string().describe('What to remind about'),
         due_at: z.string().describe('When the reminder should fire — ISO 8601 datetime or relative like "+30m", "+2h", "+1d"'),
@@ -63,52 +64,40 @@ export function createChannel() {
   );
 
   mcp.registerTool(
-    'set_interval',
+    'set_schedule',
     {
-      description: 'Create a recurring reminder that fires every N minutes/hours/days. Uses the same relative syntax: "30m", "2h", "1d". The first fire happens after one interval from now. Optionally set a downtime window (e.g. "22:00-08:00") and/or excluded weekdays (e.g. "sat,sun") to suppress firing during those periods.',
+      description: 'Create a persistent recurring schedule using a cron expression. Survives restarts and sessions. Supports 5-field (or 6 with seconds), L, #, and predefined expressions (@daily, @weekdays, etc.).',
       inputSchema: {
         message: z.string().describe('What to remind about'),
-        every: z.string().describe('How often — e.g. "30m", "2h", "1d"'),
-        downtime: z.string().optional().describe('Time window to skip firing — e.g. "22:00-08:00"'),
-        exclude_days: z.string().optional().describe('Weekdays to skip — e.g. "sat,sun" or "monday,friday"'),
+        cron: z.string().describe('Cron expression — e.g. "0 9 * * 1-5", "*/30 * * * *", or "@daily"'),
+        tz: z.string().optional().describe('IANA timezone — e.g. "America/New_York", "Europe/London". Defaults to system timezone.'),
       },
     },
-    async ({ message, every, downtime, exclude_days }) => {
-      const intervalMs = parseInterval(every);
-      if (!intervalMs) {
+    async ({ message, cron, tz }) => {
+      const validated = parseCron(cron);
+      if (!validated) {
         return {
-          content: [{ type: 'text', text: `Could not parse interval: "${every}". Use "30m", "2h", "1d", etc.` }],
+          content: [{ type: 'text', text: `Invalid cron expression: "${cron}". Use standard cron syntax or predefined like @daily, @weekdays.` }],
           isError: true,
         };
       }
 
-      let parsedDowntime = null;
-      if (downtime) {
-        parsedDowntime = parseDowntime(downtime);
-        if (!parsedDowntime) {
-          return {
-            content: [{ type: 'text', text: `Could not parse downtime: "${downtime}". Use "HH:MM-HH:MM", e.g. "22:00-08:00".` }],
-            isError: true,
-          };
-        }
+      let firstDue;
+      try {
+        firstDue = nextCronDate(cron, tz);
+      } catch (e) {
+        return {
+          content: [{ type: 'text', text: `Error computing next date: ${e.message}` }],
+          isError: true,
+        };
       }
 
-      let parsedDays = null;
-      if (exclude_days) {
-        parsedDays = parseExcludeDays(exclude_days);
-        if (!parsedDays) {
-          return {
-            content: [{ type: 'text', text: `Could not parse exclude_days: "${exclude_days}". Use day names like "sat,sun" or numbers 0-6.` }],
-            isError: true,
-          };
-        }
-      }
-
-      const firstDue = new Date(Date.now() + intervalMs).toISOString();
-      const reminder = addReminder(message, firstDue, { interval: intervalMs, downtime: parsedDowntime, excludeDays: parsedDays });
-      let text = `Recurring reminder set (id: ${reminder.id}) — fires every ${every}, first at ${reminder.dueAt}`;
-      if (parsedDowntime) text += `\n  downtime: ${parsedDowntime.start}-${parsedDowntime.end}`;
-      if (parsedDays) text += `\n  excluded: ${formatDays(parsedDays)}`;
+      const normalized = stringifyCron(cron);
+      const reminder = addReminder(message, firstDue.toISOString(), { cron, tz: tz || null });
+      const upcoming = previewCron(cron, 3, tz);
+      let text = `Schedule set (id: ${reminder.id})\n  cron: ${normalized}`;
+      if (tz) text += `\n  timezone: ${tz}`;
+      text += `\n  next 3 fires:\n    ${upcoming.join('\n    ')}`;
       return {
         content: [{ type: 'text', text }],
       };
@@ -118,9 +107,9 @@ export function createChannel() {
   mcp.registerTool(
     'list_reminders',
     {
-      description: 'List all pending reminders. Pass include_fired=true to also see past reminders.',
+      description: 'List all pending reminders. Pass include_fired=true to also see past one-time reminders.',
       inputSchema: {
-        include_fired: z.boolean().optional().default(false).describe('Include already-fired reminders'),
+        include_fired: z.boolean().optional().default(false).describe('Include already-fired one-time reminders'),
       },
     },
     async ({ include_fired }) => {
@@ -129,13 +118,14 @@ export function createChannel() {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }
       const lines = reminders.map(r => {
-        const type = r.interval ? 'RECURRING' : (r.fired ? 'FIRED' : 'PENDING');
+        const type = r.cron ? 'CRON' : (r.fired ? 'FIRED' : 'PENDING');
         let line = `[${type}] ${r.id}\n  "${r.message}"\n  due: ${r.dueAt}`;
-        if (r.interval) line += `\n  every: ${formatInterval(r.interval)}`;
-        if (r.downtime) line += `\n  downtime: ${r.downtime.start}-${r.downtime.end}`;
-        if (r.excludeDays) line += `\n  excluded: ${formatDays(r.excludeDays)}`;
-        if (r.fireCount) line += `  (fired ${r.fireCount}x, last: ${r.lastFiredAt})`;
-        if (r.firedAt) line += `  fired: ${r.firedAt}`;
+        if (r.cron) {
+          line += `\n  cron: ${r.cron}`;
+          if (r.tz) line += `\n  timezone: ${r.tz}`;
+        }
+        if (r.fireCount) line += `\n  fired ${r.fireCount}x, last: ${r.lastFiredAt}`;
+        if (r.firedAt) line += `\n  fired: ${r.firedAt}`;
         return line;
       });
       return { content: [{ type: 'text', text: lines.join('\n\n') }] };
@@ -164,9 +154,9 @@ export function createChannel() {
   async function connect() {
     const transport = new StdioServerTransport();
     await mcp.connect(transport);
-    const rescheduled = rescheduleStaleIntervals();
+    const rescheduled = rescheduleStaleCrons();
     if (rescheduled > 0) {
-      log.info('boot', `rescheduled ${rescheduled} stale recurring reminder(s)`);
+      log.info('boot', `rescheduled ${rescheduled} stale cron reminder(s)`);
     }
     scheduler.start();
     log.info('mcp', 'reminder channel connected');
@@ -174,4 +164,3 @@ export function createChannel() {
 
   return { connect, stop: scheduler.stop };
 }
-
