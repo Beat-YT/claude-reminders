@@ -1,6 +1,6 @@
 import { log } from './log.js';
-import { getDueReminders, markFired, rescheduleNext } from './store.js';
-import { localISO, isInDowntime, isExcludedDay } from './utils.js';
+import { getDueReminders, markFired } from './store.js';
+import { localISO } from './utils.js';
 
 const CHECK_INTERVAL_MS = 30_000;
 
@@ -12,10 +12,6 @@ export function createScheduler(server) {
       try {
         const due = getDueReminders();
         for (const r of due) {
-          if (r.interval && (isInDowntime(r.downtime) || isExcludedDay(r.excludeDays))) {
-            rescheduleNext(r.id);
-            continue;
-          }
           log.info('scheduler', `firing reminder ${r.id}: "${r.message}"`);
           await server.notification({
             method: 'notifications/claude/channel',
