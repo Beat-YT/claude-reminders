@@ -2,17 +2,14 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { log } from './log.js';
-import { parseDate, parseInterval, formatInterval, localISO } from './utils.js';
+import { parseDate, parseInterval, formatInterval } from './utils.js';
 import {
   addReminder,
   listReminders,
   deleteReminder,
-  getDueReminders,
-  markFired,
   rescheduleStaleIntervals,
 } from './store.js';
-
-const CHECK_INTERVAL_MS = 30_000;
+import { createScheduler } from './scheduler.js';
 
 const INSTRUCTIONS = `You have a persistent reminder system.
 
@@ -132,33 +129,7 @@ export function createChannel() {
     },
   );
 
-  let checkTimer;
-
-  function startChecker() {
-    checkTimer = setInterval(async () => {
-      try {
-        const due = getDueReminders();
-        for (const r of due) {
-          log.info('scheduler', `firing reminder ${r.id}: "${r.message}"`);
-          await mcp.server.notification({
-            method: 'notifications/claude/channel',
-            params: {
-              content: r.message,
-              meta: {
-                reminder_id: r.id,
-                created_at: r.createdAt,
-                due_at: r.dueAt,
-                fired_at: localISO(),
-              },
-            },
-          });
-          markFired(r.id);
-        }
-      } catch (e) {
-        log.error('scheduler', `check failed: ${e}`);
-      }
-    }, CHECK_INTERVAL_MS);
-  }
+  const scheduler = createScheduler(mcp.server);
 
   async function connect() {
     const transport = new StdioServerTransport();
@@ -167,14 +138,10 @@ export function createChannel() {
     if (rescheduled > 0) {
       log.info('boot', `rescheduled ${rescheduled} stale recurring reminder(s)`);
     }
-    startChecker();
+    scheduler.start();
     log.info('mcp', 'reminder channel connected');
   }
 
-  function stop() {
-    if (checkTimer) clearInterval(checkTimer);
-  }
-
-  return { connect, stop };
+  return { connect, stop: scheduler.stop };
 }
 
