@@ -31,7 +31,7 @@ function saveAll(reminders) {
   fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8');
 }
 
-export function addReminder(message, dueAt, { interval = null } = {}) {
+export function addReminder(message, dueAt, { interval = null, downtime = null, excludeDays = null } = {}) {
   const reminders = loadAll();
   const reminder = {
     id: crypto.randomUUID(),
@@ -40,6 +40,8 @@ export function addReminder(message, dueAt, { interval = null } = {}) {
     createdAt: new Date().toISOString(),
     fired: false,
     interval,
+    ...(downtime && { downtime }),
+    ...(excludeDays && { excludeDays }),
   };
   reminders.push(reminder);
   saveAll(reminders);
@@ -78,6 +80,15 @@ export function markFired(id) {
 
   r.fired = true;
   r.firedAt = new Date().toISOString();
+  saveAll(reminders);
+  return true;
+}
+
+export function rescheduleNext(id) {
+  const reminders = loadAll();
+  const r = reminders.find(r => r.id === id);
+  if (!r || !r.interval) return false;
+  r.dueAt = new Date(Date.now() + r.interval).toISOString();
   saveAll(reminders);
   return true;
 }
