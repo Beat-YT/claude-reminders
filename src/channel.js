@@ -32,7 +32,7 @@ Reminders persist across sessions — they survive restarts.`;
 
 export function createChannel() {
   const mcp = new McpServer(
-    { name: 'claude-reminder', version: '2.0.0' },
+    { name: 'claude-reminder', version: '2.1.0' },
     {
       capabilities: {
         experimental: { 'claude/channel': {} },
