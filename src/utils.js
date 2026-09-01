@@ -41,8 +41,8 @@ export function stringifyCron(cronExpr) {
   return expr.fields.stringify();
 }
 
-export function localISO() {
-  const now = new Date();
+export function localISO(date) {
+  const now = date instanceof Date ? date : date ? new Date(date) : new Date();
   const off = -now.getTimezoneOffset();
   const sign = off >= 0 ? '+' : '-';
   const pad = n => String(Math.abs(n)).padStart(2, '0');

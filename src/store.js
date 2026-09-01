@@ -32,10 +32,21 @@ function saveAll(reminders) {
   fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8');
 }
 
-export function addReminder(message, dueAt, { cron = null, tz = null } = {}) {
+export function addReminder(message, dueAt, { cron = null, tz = null, slug = null } = {}) {
   const reminders = loadAll();
+
+  let id;
+  if (slug) {
+    if (reminders.some(r => r.id === slug)) {
+      throw new Error(`A reminder with id "${slug}" already exists`);
+    }
+    id = slug;
+  } else {
+    id = crypto.randomUUID();
+  }
+
   const reminder = {
-    id: crypto.randomUUID(),
+    id,
     message,
     dueAt,
     createdAt: new Date().toISOString(),
@@ -82,6 +93,32 @@ export function markFired(id) {
   r.firedAt = new Date().toISOString();
   saveAll(reminders);
   return true;
+}
+
+export function editReminder(id, { message, dueAt, cron, tz } = {}) {
+  const reminders = loadAll();
+  const r = reminders.find(r => r.id === id);
+  if (!r) return null;
+
+  if (message !== undefined) r.message = message;
+
+  if (r.cron) {
+    if (cron !== undefined) r.cron = cron;
+    if (tz !== undefined) r.tz = tz || undefined;
+    if (cron !== undefined || tz !== undefined) {
+      r.dueAt = nextCronDate(r.cron, r.tz).toISOString();
+    }
+  } else {
+    if (dueAt !== undefined) {
+      r.dueAt = dueAt;
+      r.fired = false;
+      delete r.firedAt;
+    }
+  }
+
+  saveAll(reminders);
+  log.info('store', `edited reminder ${id}`);
+  return r;
 }
 
 export function getDueReminders() {
