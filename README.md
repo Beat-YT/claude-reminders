@@ -68,7 +68,7 @@ Then ask Claude to set a reminder — it'll have the tools available.
 |---|---|
 | `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601) |
 | `set_schedule` | Create a recurring reminder with a cron expression (`0 9 * * 1-5`, `@daily`, `@weekdays`, etc.) |
-| `list_reminders` | List pending reminders, soonest first (`include_fired=true` to see past ones, `limit` to cap the count, `sort=asc\|desc` to order by due date) |
+| `list_reminders` | List pending reminders, soonest first (`include_fired=true` to see past ones, `limit` to cap the count, `sort=asc\|desc` to order by due date, `type=all\|once\|cron` to filter by kind) |
 | `delete_reminder` | Cancel a reminder by ID (works for both one-time and recurring) |
 
 ### Cron syntax
