@@ -60,10 +60,15 @@ export function addReminder(message, dueAt, { cron = null, tz = null, slug = nul
   return reminder;
 }
 
-export function listReminders({ includeFired = false } = {}) {
-  const reminders = loadAll();
-  if (includeFired) return reminders;
-  return reminders.filter(r => !r.fired);
+export function listReminders({ includeFired = false, sort = 'asc', limit = null } = {}) {
+  let reminders = loadAll();
+  if (!includeFired) reminders = reminders.filter(r => !r.fired);
+
+  const dir = sort === 'desc' ? -1 : 1;
+  reminders.sort((a, b) => dir * (new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime()));
+
+  if (limit != null) return reminders.slice(0, limit);
+  return reminders;
 }
 
 export function deleteReminder(id) {

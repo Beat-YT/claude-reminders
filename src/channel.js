@@ -25,7 +25,7 @@ Use "set_schedule" to create recurring reminders using cron expressions (e.g. "0
   Timezone can be specified (e.g. "America/New_York").
 Both creation tools accept an optional "id" parameter — a custom slug (e.g. "weekly-standup") used in place of the default UUID.
 Use "edit_reminder" to update a reminder's message, time, cron expression, or timezone.
-Use "list_reminders" to see pending reminders.
+Use "list_reminders" to see pending reminders, sorted by due date. Accepts optional "limit" and "sort" ("asc" or "desc") parameters.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
 Reminders persist across sessions — they survive restarts.`;
@@ -122,13 +122,15 @@ export function createChannel() {
   mcp.registerTool(
     'list_reminders',
     {
-      description: 'List all pending reminders. Pass include_fired=true to also see past one-time reminders.',
+      description: 'List all pending reminders, soonest first. Pass include_fired=true to also see past one-time reminders.',
       inputSchema: {
         include_fired: z.boolean().optional().default(false).describe('Include already-fired one-time reminders'),
+        limit: z.number().int().positive().optional().describe('Maximum number of reminders to return'),
+        sort: z.enum(['asc', 'desc']).optional().default('asc').describe('Sort by due date — "asc" for soonest first, "desc" for latest first'),
       },
     },
-    async ({ include_fired }) => {
-      const reminders = listReminders({ includeFired: include_fired });
+    async ({ include_fired, limit, sort }) => {
+      const reminders = listReminders({ includeFired: include_fired, limit, sort });
       if (reminders.length === 0) {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }
