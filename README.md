@@ -1,6 +1,8 @@
 # claude-reminder
 
-A [Claude Code channel](https://code.claude.com/docs/en/channels) that gives Claude **persistent reminders**. Set a reminder with a message and a due time; when it fires, Claude is notified directly in the session. Reminders survive restarts — they're stored on disk, not in memory.
+A [Claude Code channel](https://code.claude.com/docs/en/channels) that gives Claude **persistent reminders**. Set a reminder with a message and a due time; when it fires, the message is delivered to the running Claude instance as a channel notification. Reminders survive restarts — they're stored on disk, not in memory.
+
+> **This server never sends anything to the user.** It has no outbound integrations — no Slack, email, SMS, push, or any other delivery target. The only thing it does with a reminder message is hand it back to the current Claude Code session via the channel. It is a "wake Claude up later with this note" tool, not a "send this message in X" tool. Claude decides what to do with the message once it arrives.
 
 ## Why
 
@@ -8,14 +10,14 @@ Claude Code's built-in `/schedule` is session-only (dies with the instance) and 
 
 ## How it works
 
-The channel is a single Node.js process that Claude Code spawns as an MCP stdio server (see `.mcp.json`). A 30-second interval checks for due reminders and fires them as channel notifications.
+The channel is a single Node.js process that Claude Code spawns as an MCP stdio server (see `.mcp.json`). A 30-second interval checks for due reminders and fires them as `notifications/claude/channel` messages over stdio. Claude Code injects each one into the active session as a `<channel source="reminder">` block — nothing leaves the process by any other route.
 
 ```
 set_reminder / set_schedule → store to disk → interval checker → channel notification → Claude
 ```
 
 - **Set**: Claude calls `set_reminder` (one-time) or `set_schedule` (cron-based recurring) with a message and timing.
-- **Fire**: a 30-second checker picks up due reminders and injects them into the session.
+- **Fire**: a 30-second checker picks up due reminders and injects them into the current Claude session. The message goes to Claude, not to the user or any external service.
 - **Persist**: reminders are stored as JSON on disk — they survive process restarts and new sessions.
 - **Cold start**: cron reminders that fell behind during an outage are rescheduled to their next occurrence — no backlog flood.
 
@@ -66,8 +68,8 @@ Then ask Claude to set a reminder — it'll have the tools available.
 
 | Tool | Description |
 |---|---|
-| `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601) |
-| `set_schedule` | Create a recurring reminder with a cron expression (`0 9 * * 1-5`, `@daily`, `@weekdays`, etc.) |
+| `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601). The message is delivered to Claude when it fires, not to the user |
+| `set_schedule` | Create a recurring reminder with a cron expression (`0 9 * * 1-5`, `@daily`, `@weekdays`, etc.). Same delivery: to Claude, not to the user |
 | `list_reminders` | List pending reminders, soonest first (`include_fired=true` to see past ones, `limit` to cap the count, `sort=asc\|desc` to order by due date, `type=all\|once\|cron` to filter by kind) |
 | `delete_reminder` | Cancel a reminder by ID (works for both one-time and recurring) |
 

@@ -14,6 +14,12 @@ import { createScheduler } from './scheduler.js';
 
 const INSTRUCTIONS = `You have a persistent reminder system.
 
+IMPORTANT — what this server does and does not do:
+  - It NEVER sends anything to the user. It has no outbound integrations (no Slack, email, SMS, push, etc.).
+  - A reminder's message is delivered to YOU (the running Claude instance) via a channel notification when it fires.
+  - It is NOT a "send this message in X" tool. Do not use it to message the user or anyone else.
+  - When a reminder fires, it is your cue to act on the note — surface it to the user in conversation, run a task, etc.
+
 When a reminder fires, you'll receive a notification like:
   <channel source="reminder" reminder_id="<id>">
     reminder message here
@@ -44,9 +50,9 @@ export function createChannel() {
   mcp.registerTool(
     'set_reminder',
     {
-      description: 'Create a persistent one-time reminder. Survives restarts and sessions. Accepts ISO 8601 datetime or relative like "+30m", "+2h", "+1d".',
+      description: 'Create a persistent one-time reminder. When it fires, the message is delivered to the running Claude instance as a channel notification — it is never sent to the user or any external service. Survives restarts and sessions. Accepts ISO 8601 datetime or relative like "+30m", "+2h", "+1d".',
       inputSchema: {
-        message: z.string().describe('What to remind about'),
+        message: z.string().describe('The note delivered to Claude when the reminder fires (not sent to the user)'),
         due_at: z.string().describe('When the reminder should fire — ISO 8601 datetime or relative like "+30m", "+2h", "+1d"'),
         id: z.string().optional().describe('Custom slug ID (e.g. "weekly-standup"). Defaults to a UUID if not provided.'),
       },
@@ -75,9 +81,9 @@ export function createChannel() {
   mcp.registerTool(
     'set_schedule',
     {
-      description: 'Create a persistent recurring schedule using a cron expression. Survives restarts and sessions. Supports 5-field (or 6 with seconds), L, #, and predefined expressions (@daily, @weekdays, etc.).',
+      description: 'Create a persistent recurring schedule using a cron expression. On each fire, the message is delivered to the running Claude instance as a channel notification — it is never sent to the user or any external service. Survives restarts and sessions. Supports 5-field (or 6 with seconds), L, #, and predefined expressions (@daily, @weekdays, etc.).',
       inputSchema: {
-        message: z.string().describe('What to remind about'),
+        message: z.string().describe('The note delivered to Claude when the reminder fires (not sent to the user)'),
         cron: z.string().describe('Cron expression — e.g. "0 9 * * 1-5", "*/30 * * * *", or "@daily"'),
         tz: z.string().optional().describe('IANA timezone — e.g. "America/New_York", "Europe/London". Defaults to system timezone.'),
         id: z.string().optional().describe('Custom slug ID (e.g. "weekly-standup"). Defaults to a UUID if not provided.'),

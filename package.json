@@ -1,7 +1,7 @@
 {
   "name": "claude-reminder",
   "version": "2.1.0",
-  "description": "Claude Code MCP channel for persistent reminders",
+  "description": "Claude Code MCP channel for persistent reminders — delivers reminder messages to the running Claude instance, never to the user",
   "type": "module",
   "license": "MIT",
   "author": "Beat YT",
