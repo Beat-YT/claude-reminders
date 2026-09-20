@@ -30,6 +30,7 @@ Use "set_schedule" to create recurring reminders using cron expressions (e.g. "0
   Predefined expressions like @daily, @hourly, @weekdays, @weekends are also supported.
   Timezone can be specified (e.g. "America/New_York").
 Both creation tools accept an optional "id" parameter — a custom slug (e.g. "weekly-standup") used in place of the default UUID.
+  If that id is already taken the call fails, unless "override" is true — then the existing reminder is replaced (a one-time reminder can replace a schedule and vice versa).
 Use "edit_reminder" to update a reminder's message, time, cron expression, or timezone.
 Use "list_reminders" to see pending reminders, sorted by due date. Accepts optional "limit", "sort" ("asc" or "desc"), and "type" ("all", "once", or "cron") parameters.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
@@ -55,9 +56,10 @@ export function createChannel() {
         message: z.string().describe('The note delivered to Claude when the reminder fires (not sent to the user)'),
         due_at: z.string().describe('When the reminder should fire — ISO 8601 datetime or relative like "+30m", "+2h", "+1d"'),
         id: z.string().optional().describe('Custom slug ID (e.g. "weekly-standup"). Defaults to a UUID if not provided.'),
+        override: z.boolean().optional().default(false).describe('If a reminder with the given id already exists, replace it instead of failing'),
       },
     },
-    async ({ message, due_at, id }) => {
+    async ({ message, due_at, id, override }) => {
       const resolvedDate = parseDate(due_at);
       if (!resolvedDate) {
         return {
@@ -66,14 +68,14 @@ export function createChannel() {
         };
       }
 
-      let reminder;
+      let reminder, replaced;
       try {
-        reminder = addReminder(message, resolvedDate.toISOString(), { slug: id });
+        ({ reminder, replaced } = addReminder(message, resolvedDate.toISOString(), { slug: id, override }));
       } catch (e) {
         return { content: [{ type: 'text', text: e.message }], isError: true };
       }
       return {
-        content: [{ type: 'text', text: `Reminder set (id: ${reminder.id}) — will fire at ${localISO(reminder.dueAt)}` }],
+        content: [{ type: 'text', text: `Reminder ${replaced ? 'replaced' : 'set'} (id: ${reminder.id}) — will fire at ${localISO(reminder.dueAt)}` }],
       };
     },
   );
@@ -87,9 +89,10 @@ export function createChannel() {
         cron: z.string().describe('Cron expression — e.g. "0 9 * * 1-5", "*/30 * * * *", or "@daily"'),
         tz: z.string().optional().describe('IANA timezone — e.g. "America/New_York", "Europe/London". Defaults to system timezone.'),
         id: z.string().optional().describe('Custom slug ID (e.g. "weekly-standup"). Defaults to a UUID if not provided.'),
+        override: z.boolean().optional().default(false).describe('If a reminder with the given id already exists, replace it instead of failing'),
       },
     },
-    async ({ message, cron, tz, id }) => {
+    async ({ message, cron, tz, id, override }) => {
       const validated = parseCron(cron);
       if (!validated) {
         return {
@@ -109,14 +112,14 @@ export function createChannel() {
       }
 
       const normalized = stringifyCron(cron);
-      let reminder;
+      let reminder, replaced;
       try {
-        reminder = addReminder(message, firstDue.toISOString(), { cron, tz: tz || null, slug: id });
+        ({ reminder, replaced } = addReminder(message, firstDue.toISOString(), { cron, tz: tz || null, slug: id, override }));
       } catch (e) {
         return { content: [{ type: 'text', text: e.message }], isError: true };
       }
       const upcoming = previewCron(cron, 3, tz).map(d => localISO(d));
-      let text = `Schedule set (id: ${reminder.id})\n  cron: ${normalized}`;
+      let text = `Schedule ${replaced ? 'replaced' : 'set'} (id: ${reminder.id})\n  cron: ${normalized}`;
       if (tz) text += `\n  timezone: ${tz}`;
       text += `\n  next 3 fires:\n    ${upcoming.join('\n    ')}`;
       return {

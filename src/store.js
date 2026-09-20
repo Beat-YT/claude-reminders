@@ -32,13 +32,19 @@ function saveAll(reminders) {
   fs.writeFileSync(REMINDERS_FILE, JSON.stringify(reminders, null, 2), 'utf-8');
 }
 
-export function addReminder(message, dueAt, { cron = null, tz = null, slug = null } = {}) {
+export function addReminder(message, dueAt, { cron = null, tz = null, slug = null, override = false } = {}) {
   const reminders = loadAll();
 
   let id;
+  let replaced = false;
   if (slug) {
-    if (reminders.some(r => r.id === slug)) {
-      throw new Error(`A reminder with id "${slug}" already exists`);
+    const idx = reminders.findIndex(r => r.id === slug);
+    if (idx !== -1) {
+      if (!override) {
+        throw new Error(`A reminder with id "${slug}" already exists (pass override=true to replace it)`);
+      }
+      reminders.splice(idx, 1);
+      replaced = true;
     }
     id = slug;
   } else {
@@ -56,8 +62,8 @@ export function addReminder(message, dueAt, { cron = null, tz = null, slug = nul
   };
   reminders.push(reminder);
   saveAll(reminders);
-  log.info('store', `added reminder ${reminder.id} due at ${dueAt}${cron ? ` (cron: ${cron})` : ''}`);
-  return reminder;
+  log.info('store', `${replaced ? 'replaced' : 'added'} reminder ${reminder.id} due at ${dueAt}${cron ? ` (cron: ${cron})` : ''}`);
+  return { reminder, replaced };
 }
 
 export function listReminders({ includeFired = false, sort = 'asc', limit = null, type = 'all' } = {}) {
