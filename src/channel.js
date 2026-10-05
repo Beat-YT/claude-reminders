@@ -6,6 +6,7 @@ import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron, localIS
 import {
   addReminder,
   listReminders,
+  searchReminders,
   deleteReminder,
   editReminder,
   rescheduleStaleCrons,
@@ -33,9 +34,22 @@ Both creation tools accept an optional "id" parameter — a custom slug (e.g. "w
   If that id is already taken the call fails, unless "override" is true — then the existing reminder is replaced (a one-time reminder can replace a schedule and vice versa).
 Use "edit_reminder" to update a reminder's message, time, cron expression, or timezone.
 Use "list_reminders" to see pending reminders, sorted by due date. Accepts optional "limit", "sort" ("asc" or "desc"), and "type" ("all", "once", or "cron") parameters.
+Use "search_reminders" to find reminders whose message or id contains the given text (case-insensitive; every whitespace-separated word must match). Accepts the same "include_fired", "limit", "sort", and "type" parameters as list_reminders.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
 Reminders persist across sessions — they survive restarts.`;
+
+function formatReminder(r) {
+  const label = r.cron ? 'CRON' : (r.fired ? 'FIRED' : 'PENDING');
+  let line = `[${label}] ${r.id}\n  "${r.message}"\n  due: ${localISO(r.dueAt)}`;
+  if (r.cron) {
+    line += `\n  cron: ${r.cron}`;
+    if (r.tz) line += `\n  timezone: ${r.tz}`;
+  }
+  if (r.fireCount) line += `\n  fired ${r.fireCount}x, last: ${localISO(r.lastFiredAt)}`;
+  if (r.firedAt) line += `\n  fired: ${localISO(r.firedAt)}`;
+  return line;
+}
 
 export function createChannel() {
   const mcp = new McpServer(
@@ -144,18 +158,29 @@ export function createChannel() {
       if (reminders.length === 0) {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }
-      const lines = reminders.map(r => {
-        const label = r.cron ? 'CRON' : (r.fired ? 'FIRED' : 'PENDING');
-        let line = `[${label}] ${r.id}\n  "${r.message}"\n  due: ${localISO(r.dueAt)}`;
-        if (r.cron) {
-          line += `\n  cron: ${r.cron}`;
-          if (r.tz) line += `\n  timezone: ${r.tz}`;
-        }
-        if (r.fireCount) line += `\n  fired ${r.fireCount}x, last: ${localISO(r.lastFiredAt)}`;
-        if (r.firedAt) line += `\n  fired: ${localISO(r.firedAt)}`;
-        return line;
-      });
-      return { content: [{ type: 'text', text: lines.join('\n\n') }] };
+      return { content: [{ type: 'text', text: reminders.map(formatReminder).join('\n\n') }] };
+    },
+  );
+
+  mcp.registerTool(
+    'search_reminders',
+    {
+      description: 'Search reminders by text. Matches case-insensitively against the message and id; every whitespace-separated word in the query must appear. Supports the same filters as list_reminders.',
+      inputSchema: {
+        query: z.string().min(1).describe('Text to search for in reminder messages and ids (case-insensitive, all words must match)'),
+        include_fired: z.boolean().optional().default(false).describe('Include already-fired one-time reminders'),
+        limit: z.number().int().positive().optional().describe('Maximum number of results to return'),
+        sort: z.enum(['asc', 'desc']).optional().default('asc').describe('Sort by due date — "asc" for soonest first, "desc" for latest first'),
+        type: z.enum(['all', 'once', 'cron']).optional().default('all').describe('Filter by reminder type — "once" for one-time reminders, "cron" for recurring schedules'),
+      },
+    },
+    async ({ query, include_fired, limit, sort, type }) => {
+      const reminders = searchReminders(query, { includeFired: include_fired, limit, sort, type });
+      if (reminders.length === 0) {
+        return { content: [{ type: 'text', text: `No reminders matching "${query}".` }] };
+      }
+      const header = `${reminders.length} reminder${reminders.length === 1 ? '' : 's'} matching "${query}":`;
+      return { content: [{ type: 'text', text: `${header}\n\n${reminders.map(formatReminder).join('\n\n')}` }] };
     },
   );
 

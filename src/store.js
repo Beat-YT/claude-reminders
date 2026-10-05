@@ -79,6 +79,20 @@ export function listReminders({ includeFired = false, sort = 'asc', limit = null
   return reminders;
 }
 
+export function searchReminders(query, { includeFired = false, sort = 'asc', limit = null, type = 'all' } = {}) {
+  const terms = String(query).toLowerCase().split(/\s+/).filter(Boolean);
+  const reminders = listReminders({ includeFired, sort, type });
+  if (terms.length === 0) return limit != null ? reminders.slice(0, limit) : reminders;
+
+  const matches = reminders.filter(r => {
+    const haystack = `${r.id} ${r.message}`.toLowerCase();
+    return terms.every(t => haystack.includes(t));
+  });
+
+  if (limit != null) return matches.slice(0, limit);
+  return matches;
+}
+
 export function deleteReminder(id) {
   const reminders = loadAll();
   const idx = reminders.findIndex(r => r.id === id);
