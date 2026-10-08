@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { log } from './log.js';
-import { nextCronDate } from './utils.js';
+import { nextCronDate, rangeBounds } from './utils.js';
 
 const DATA_DIR = path.join(
   process.env.REMINDER_DATA_DIR ||
@@ -77,6 +77,15 @@ export function listReminders({ includeFired = false, sort = 'asc', limit = null
 
   if (limit != null) return reminders.slice(0, limit);
   return reminders;
+}
+
+// Pending reminders whose dueAt (next fire, for schedules) falls in the range.
+export function previewReminders(range, { limit = null, type = 'all' } = {}) {
+  const { after, before } = rangeBounds(range);
+  let reminders = listReminders({ includeFired: false, sort: 'asc', type });
+  if (after != null) reminders = reminders.filter(r => new Date(r.dueAt).getTime() >= after);
+  if (before != null) reminders = reminders.filter(r => new Date(r.dueAt).getTime() < before);
+  return limit != null ? reminders.slice(0, limit) : reminders;
 }
 
 export function searchReminders(query, { includeFired = false, sort = 'asc', limit = null, type = 'all' } = {}) {

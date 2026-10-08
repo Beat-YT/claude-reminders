@@ -71,6 +71,7 @@ Then ask Claude to set a reminder — it'll have the tools available.
 | `set_reminder` | Create a one-time reminder with a message and due time (`+30m`, `+2h`, `+1d`, or ISO 8601). The message is delivered to Claude when it fires, not to the user. Optional `id` slug; `override=true` replaces an existing reminder with that id |
 | `set_schedule` | Create a recurring reminder with a cron expression (`0 9 * * 1-5`, `@daily`, `@weekdays`, etc.). Same delivery: to Claude, not to the user. Same `id` / `override` options |
 | `list_reminders` | List pending reminders, soonest first (`include_fired=true` to see past ones, `limit` to cap the count, `sort=asc\|desc` to order by due date, `type=all\|once\|cron` to filter by kind) |
+| `preview_reminders` | Compact one-line-per-reminder view of a time window (`range=today\|tomorrow\|week\|next_week\|upcoming`, default `upcoming`): id, due time and the first line of the message, never the full message. `today` and `week` include past-due reminders; `tomorrow` and `next_week` are exact Monday–Sunday-based windows; for schedules the window applies to the next fire. Accepts `limit` and `type` |
 | `search_reminders` | Find reminders whose message or id contains `query` (case-insensitive; every word must match). Accepts the same `include_fired`, `limit`, `sort`, and `type` options as `list_reminders` |
 | `delete_reminder` | Cancel a reminder by ID (works for both one-time and recurring) |
 
