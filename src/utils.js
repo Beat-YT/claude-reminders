@@ -41,6 +41,29 @@ export function stringifyCron(cronExpr) {
   return expr.fields.stringify();
 }
 
+export const RANGES = ['any', 'day', 'tomorrow', 'week', 'next_week', 'overdue', 'upcoming'];
+
+/**
+ * Bounds (epoch ms) for a list range as { after, before }: inclusive lower, exclusive
+ * upper, null for unbounded. Local machine time; weeks run Monday–Sunday. "day" and
+ * "week" are open on the past side so past-due reminders stay visible; "tomorrow" and
+ * "next_week" are exact windows.
+ */
+export function rangeBounds(range) {
+  const now = new Date();
+  const day = n => new Date(now.getFullYear(), now.getMonth(), now.getDate() + n).getTime();
+  const daysToMonday = ((8 - now.getDay()) % 7) || 7;
+  switch (range) {
+    case 'day': return { after: null, before: day(1) };
+    case 'tomorrow': return { after: day(1), before: day(2) };
+    case 'week': return { after: null, before: day(daysToMonday) };
+    case 'next_week': return { after: day(daysToMonday), before: day(daysToMonday + 7) };
+    case 'overdue': return { after: null, before: now.getTime() };
+    case 'upcoming': return { after: now.getTime(), before: null };
+    default: return { after: null, before: null };
+  }
+}
+
 export function localISO(date) {
   const now = date instanceof Date ? date : date ? new Date(date) : new Date();
   const off = -now.getTimezoneOffset();

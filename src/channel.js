@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { log } from './log.js';
-import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron, localISO } from './utils.js';
+import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron, localISO, RANGES } from './utils.js';
 import {
   addReminder,
   listReminders,
@@ -34,6 +34,9 @@ Both creation tools accept an optional "id" parameter — a custom slug (e.g. "w
   If that id is already taken the call fails, unless "override" is true — then the existing reminder is replaced (a one-time reminder can replace a schedule and vice versa).
 Use "edit_reminder" to update a reminder's message, time, cron expression, or timezone.
 Use "list_reminders" to see pending reminders, sorted by due date. Accepts optional "limit", "sort" ("asc" or "desc"), and "type" ("all", "once", or "cron") parameters.
+  Pass "range" to narrow by due time: "day" (today), "tomorrow", "week" (through Sunday), "next_week" (Monday–Sunday), "overdue" (due time already passed), "upcoming" (not yet due) or "any".
+  "day" and "week" also include past-due reminders; "tomorrow" and "next_week" are exact windows. For schedules the range applies to the next fire.
+  Use ranges during self-checks to see only what matters now instead of the whole list.
 Use "search_reminders" to find reminders whose message or id contains the given text (case-insensitive; every whitespace-separated word must match). Accepts the same "include_fired", "limit", "sort", and "type" parameters as list_reminders.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
@@ -145,16 +148,17 @@ export function createChannel() {
   mcp.registerTool(
     'list_reminders',
     {
-      description: 'List all pending reminders, soonest first. Pass include_fired=true to also see past one-time reminders.',
+      description: 'List pending reminders, soonest first. Pass range to narrow by due time (e.g. "tomorrow", "next_week"), include_fired=true to also see past one-time reminders.',
       inputSchema: {
         include_fired: z.boolean().optional().default(false).describe('Include already-fired one-time reminders'),
         limit: z.number().int().positive().optional().describe('Maximum number of reminders to return'),
         sort: z.enum(['asc', 'desc']).optional().default('asc').describe('Sort by due date — "asc" for soonest first, "desc" for latest first'),
         type: z.enum(['all', 'once', 'cron']).optional().default('all').describe('Filter by reminder type — "once" for one-time reminders, "cron" for recurring schedules'),
+        range: z.enum(RANGES).optional().default('any').describe('Narrow by due time (local time; for schedules, the next fire). "day": due today or earlier. "tomorrow": due tomorrow only. "week": due by the end of this week (Sunday) or earlier. "next_week": due next Monday through Sunday only. "overdue": due time already passed. "upcoming": not yet due. "any": no restriction'),
       },
     },
-    async ({ include_fired, limit, sort, type }) => {
-      const reminders = listReminders({ includeFired: include_fired, limit, sort, type });
+    async ({ include_fired, limit, sort, type, range }) => {
+      const reminders = listReminders({ includeFired: include_fired, limit, sort, type, range });
       if (reminders.length === 0) {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }

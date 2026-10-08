@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { log } from './log.js';
-import { nextCronDate } from './utils.js';
+import { nextCronDate, rangeBounds } from './utils.js';
 
 const DATA_DIR = path.join(
   process.env.REMINDER_DATA_DIR ||
@@ -66,11 +66,16 @@ export function addReminder(message, dueAt, { cron = null, tz = null, slug = nul
   return { reminder, replaced };
 }
 
-export function listReminders({ includeFired = false, sort = 'asc', limit = null, type = 'all' } = {}) {
+export function listReminders({ includeFired = false, sort = 'asc', limit = null, type = 'all', range = 'any' } = {}) {
   let reminders = loadAll();
   if (!includeFired) reminders = reminders.filter(r => !r.fired);
   if (type === 'cron') reminders = reminders.filter(r => r.cron);
   else if (type === 'once') reminders = reminders.filter(r => !r.cron);
+
+  // For cron reminders dueAt is the next fire, so a range means "next fire falls in it".
+  const { after, before } = rangeBounds(range);
+  if (after != null) reminders = reminders.filter(r => new Date(r.dueAt).getTime() >= after);
+  if (before != null) reminders = reminders.filter(r => new Date(r.dueAt).getTime() < before);
 
   const dir = sort === 'desc' ? -1 : 1;
   reminders.sort((a, b) => dir * (new Date(a.dueAt).getTime() - new Date(b.dueAt).getTime()));
