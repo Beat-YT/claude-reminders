@@ -2,10 +2,11 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { log } from './log.js';
-import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron, localISO } from './utils.js';
+import { parseDate, parseCron, nextCronDate, previewCron, stringifyCron, localISO, PREVIEW_RANGES } from './utils.js';
 import {
   addReminder,
   listReminders,
+  previewReminders,
   searchReminders,
   deleteReminder,
   editReminder,
@@ -34,6 +35,8 @@ Both creation tools accept an optional "id" parameter — a custom slug (e.g. "w
   If that id is already taken the call fails, unless "override" is true — then the existing reminder is replaced (a one-time reminder can replace a schedule and vice versa).
 Use "edit_reminder" to update a reminder's message, time, cron expression, or timezone.
 Use "list_reminders" to see pending reminders, sorted by due date. Accepts optional "limit", "sort" ("asc" or "desc"), and "type" ("all", "once", or "cron") parameters.
+Use "preview_reminders" for a compact one-line-per-reminder look at a time window ("today", "tomorrow", "week", "next_week" or "upcoming") — id, due time and the first line of the message, never the full message.
+  For schedules the window applies to the next fire. Use it to look ahead cheaply; use list_reminders or search_reminders for full messages. Accepts "limit" and "type".
 Use "search_reminders" to find reminders whose message or id contains the given text (case-insensitive; every whitespace-separated word must match). Accepts the same "include_fired", "limit", "sort", and "type" parameters as list_reminders.
 Use "delete_reminder" to cancel one (works for both one-time and recurring).
 
@@ -49,6 +52,15 @@ function formatReminder(r) {
   if (r.fireCount) line += `\n  fired ${r.fireCount}x, last: ${localISO(r.lastFiredAt)}`;
   if (r.firedAt) line += `\n  fired: ${localISO(r.firedAt)}`;
   return line;
+}
+
+const PREVIEW_CHARS = 80;
+
+function previewReminder(r) {
+  const label = r.cron ? 'CRON' : 'PENDING';
+  const line = r.message.split('\n', 1)[0].trim();
+  const snippet = line.length > PREVIEW_CHARS ? `${line.slice(0, PREVIEW_CHARS - 1).trimEnd()}…` : line;
+  return `- [${label}] ${r.id} — ${localISO(r.dueAt)} — ${snippet}`;
 }
 
 export function createChannel() {
@@ -159,6 +171,24 @@ export function createChannel() {
         return { content: [{ type: 'text', text: 'No reminders.' }] };
       }
       return { content: [{ type: 'text', text: reminders.map(formatReminder).join('\n\n') }] };
+    },
+  );
+
+  mcp.registerTool(
+    'preview_reminders',
+    {
+      description: 'Compact overview of pending reminders in a time window: one line each (id, due time, first line of the message), never the full message. Cheap way to look ahead; use list_reminders for full messages. For schedules the window applies to the next fire.',
+      inputSchema: {
+        range: z.enum(PREVIEW_RANGES).optional().default('upcoming').describe('"today": due today or earlier. "tomorrow": due tomorrow only. "week": due by the end of this week (Sunday) or earlier. "next_week": due next Monday through Sunday only. "upcoming": not yet due'),
+        limit: z.number().int().positive().optional().describe('Maximum number of reminders to return'),
+        type: z.enum(['all', 'once', 'cron']).optional().default('all').describe('Filter by reminder type — "once" for one-time reminders, "cron" for recurring schedules'),
+      },
+    },
+    async ({ range, limit, type }) => {
+      const reminders = previewReminders(range, { limit, type });
+      const header = `${reminders.length} reminder${reminders.length === 1 ? '' : 's'} ${range}:`;
+      if (reminders.length === 0) return { content: [{ type: 'text', text: `No reminders ${range}.` }] };
+      return { content: [{ type: 'text', text: `${header}\n${reminders.map(previewReminder).join('\n')}` }] };
     },
   );
 
